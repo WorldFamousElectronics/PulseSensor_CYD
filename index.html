@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PulseSensor CYD Flasher</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    * { box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    h1 {
+      color: #E63946;
+      margin-bottom: 8px;
+      font-size: 2em;
+    }
+    
+    .subtitle {
+      color: #888;
+      font-size: 1.1em;
+    }
+    
+    .flash-section {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 40px;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .flash-section h2 {
+      margin-top: 0;
+      color: #fff;
+    }
+    
+    esp-web-install-button {
+      --esp-tools-button-background: linear-gradient(135deg, #E63946, #d62839);
+      --esp-tools-button-color: white;
+    }
+    
+    esp-web-install-button button {
+      font-size: 1.3em;
+      padding: 16px 40px;
+      border-radius: 8px;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+      background: linear-gradient(135deg, #E63946, #d62839);
+      color: white;
+      box-shadow: 0 4px 20px rgba(230, 57, 70, 0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    esp-web-install-button button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(230, 57, 70, 0.5);
+    }
+    
+    .browser-note {
+      color: #888;
+      font-size: 0.85em;
+      margin-top: 16px;
+    }
+    
+    .wiring-section {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    
+    .wiring-section h3 {
+      margin-top: 0;
+      color: #ccc;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    th {
+      color: #888;
+      font-weight: normal;
+      font-size: 0.9em;
+    }
+    
+    .wire-red { color: #E63946; font-weight: bold; }
+    .wire-black { color: #999; font-weight: bold; }
+    .wire-purple { color: #9b59b6; font-weight: bold; }
+    
+    .warning {
+      background: rgba(230, 57, 70, 0.1);
+      border: 1px solid rgba(230, 57, 70, 0.3);
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 20px;
+      font-size: 0.9em;
+    }
+    
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      color: #666;
+    }
+    
+    footer a {
+      color: #E63946;
+      text-decoration: none;
+    }
+    
+    a {
+      color: #4dabf7;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>⚡ PulseSensor CYD</h1>
+      <p class="subtitle">Flash your Cheap Yellow Display in one click</p>
+    </header>
+    
+    <div class="flash-section">
+      <h2>Step 1: Flash Firmware</h2>
+      <p>Connect your CYD via USB, then click the button:</p>
+      
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate">Install PulseSensor</button>
+        <span slot="unsupported">
+          Your browser doesn't support WebSerial.<br>
+          Please use Chrome, Edge, or Opera.
+        </span>
+      </esp-web-install-button>
+      
+      <p class="browser-note">Requires Chrome, Edge, or Opera browser</p>
+    </div>
+    
+    <div class="wiring-section">
+      <h3>Step 2: Wire Your PulseSensor</h3>
+      <p>Connect to the CYD's P3 and CN1 connectors:</p>
+      
+      <table>
+        <tr>
+          <th>PulseSensor Wire</th>
+          <th>CYD Pin</th>
+        </tr>
+        <tr>
+          <td><span class="wire-red">RED</span> (+V)</td>
+          <td>3.3V (CN1)</td>
+        </tr>
+        <tr>
+          <td><span class="wire-black">BLACK</span> (GND)</td>
+          <td>GND (P3 or CN1)</td>
+        </tr>
+        <tr>
+          <td><span class="wire-purple">PURPLE</span> (Signal)</td>
+          <td>GPIO 35 (P3)</td>
+        </tr>
+      </table>
+      
+      <div class="warning">
+        <strong>⚠️ Use 3.3V, not 5V!</strong><br>
+        The CYD's CN1 provides 3.3V. The signal quality is best at this voltage.
+      </div>
+    </div>
+    
+    <div class="wiring-section">
+      <h3>Step 3: See Your Heartbeat</h3>
+      <p>Place your finger on the PulseSensor. You'll see:</p>
+      <ul>
+        <li><strong>BPM</strong> — Your heart rate</li>
+        <li><strong>Waveform</strong> — Scrolling pulse wave</li>
+        <li><strong>IBI</strong> — Time between beats</li>
+        <li><strong>RGB LED</strong> — Flashes red with each beat</li>
+      </ul>
+    </div>
+    
+    <footer>
+      <p>
+        Made with ❤️ by <a href="https://pulsesensor.com">World Famous Electronics</a><br>
+        <a href="https://github.com/WorldFamousElectronics/PulseSensor_CYD">View source on GitHub</a>
+      </p>
+      <p style="font-size: 0.8em; margin-top: 16px;">
+        Powered by <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>
