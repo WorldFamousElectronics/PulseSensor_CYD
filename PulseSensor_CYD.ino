@@ -2,41 +2,20 @@
  * PulseSensor on Cheap Yellow Display (CYD)
  * ESP32-2432S028R
  * 
- * Standalone heartbeat monitor with:
- * - Large BPM display
- * - Smooth scrolling waveform
- * - IBI (inter-beat interval)
- * - RGB LED heartbeat indicator
- * - Auto-scaling signal
- * - No-finger timeout
- * 
- * Hardware Setup:
- *   PulseSensor Signal → GPIO 35 (P3 connector)
- *   PulseSensor VCC    → 3.3V (CN1 connector)
- *   PulseSensor GND    → GND (P3 or CN1)
- * 
- * Libraries Required:
- *   - TFT_eSPI (configured for CYD)
- *   - PulseSensorPlayground
- * 
- * Board: ESP32 Dev Module
- * 
- * More info: https://pulsesensor.com/pages/cyd
- * GitHub: https://github.com/WorldFamousElectronics/PulseSensor_CYD
- * 
- * License: MIT
- * (c) 2026 World Famous Electronics LLC
+ * FLICKER-FREE scrolling waveform + RGB LED heartbeat
  */
 
 #include <TFT_eSPI.h>
 #include <PulseSensorPlayground.h>
 
 // ============== PIN DEFINITIONS ==============
-#define PULSE_SENSOR_PIN  35   // GPIO35 on P3 connector (ADC, input only)
-#define BACKLIGHT_PIN     21   // Display backlight
-#define RGB_LED_R         4    // Onboard RGB LED - Red
-#define RGB_LED_G         16   // Onboard RGB LED - Green
-#define RGB_LED_B         17   // Onboard RGB LED - Blue
+#define PULSE_SENSOR_PIN  35
+#define BACKLIGHT_PIN     21
+
+// RGB LED pins (directly on CYD board)
+#define LED_RED_PIN       4
+#define LED_GREEN_PIN     16
+#define LED_BLUE_PIN      17
 
 // ============== DISPLAY SETUP ==============
 TFT_eSPI tft = TFT_eSPI();
@@ -49,7 +28,6 @@ TFT_eSPI tft = TFT_eSPI();
 #define BPM_Y             5
 #define BEAT_X            270
 #define BEAT_Y            35
-#define BEAT_R            25
 
 #define WAVEFORM_TOP      80
 #define WAVEFORM_HEIGHT   100
@@ -59,20 +37,32 @@ TFT_eSPI tft = TFT_eSPI();
 #define SIGNAL_X          10
 #define IBI_X             170
 
-// ============== COLORS (Customizable) ==============
-#define COLOR_BG          0x18C3    // Dark charcoal
-#define COLOR_WAVEFORM    0xE1E9    // Salmon red
-#define COLOR_BPM         0x4F10    // Green
-#define COLOR_SIGNAL      0xFE60    // Yellow  
-#define COLOR_IBI         0x269E    // Cyan
-#define COLOR_HEART       0xEA29    // Red
-#define COLOR_HEART_DIM   0x4208    // Dark gray (inactive)
-#define COLOR_LABEL       0x6B6D    // Gray
-#define COLOR_GRID        0x3A0A    // Dark gray
+// ============== PULSESENSOR.COM BRAND COLORS ==============
+#define COLOR_BG          0x18C3
+#define COLOR_WAVEFORM    0xFE60
+#define COLOR_BPM         0x4F10
+#define COLOR_SIGNAL      0xFE60
+#define COLOR_IBI         0xE1E9
+#define COLOR_HEART       0xE1E9
+#define COLOR_HEART_DIM   0x4208
+#define COLOR_LABEL       0x6B6D
+#define COLOR_GRID        0x3A0A
+#define COLOR_BORDER      0x4A69
+
+// ============== BRANDING SETTINGS ==============
+#define BRAND_TEXT        "PulseSensor.com"
+#define BRAND_COLOR       0xFFFF    // White (change to any RGB565 color)
+#define BRAND_SIZE        1         // 1=small, 2=medium, 3=large
+#define BRAND_X           110       // Between BPM and heart
+#define BRAND_Y           2         // Very top edge
 
 // ============== WAVEFORM SETTINGS ==============
-#define WAVEFORM_THICKNESS  3
-#define WAVEFORM_SPEED      20  // ms between draws
+#define WAVEFORM_THICKNESS  4
+#define WAVEFORM_SPEED      5
+
+// ============== LED SETTINGS ==============
+#define LED_FADE_SPEED      4     // How fast LED fades (higher = faster)
+#define LED_MAX_BRIGHTNESS  255   // 0-255
 
 // ============== PULSESENSOR ==============
 PulseSensorPlayground pulseSensor;
@@ -84,19 +74,19 @@ const int THRESHOLD = 550;
 // ============== WAVEFORM BUFFER ==============
 #define WAVEFORM_SAMPLES  SCREEN_WIDTH
 int waveformBuffer[WAVEFORM_SAMPLES];
-int waveformIndex = 0;
+int waveformX = 0;
 int minSignal = 4095;
 int maxSignal = 0;
 
 // ============== TIMING ==============
 unsigned long lastDrawTime = 0;
 unsigned long lastBeatTime = 0;
+unsigned long lastLedUpdate = 0;
 bool beatFlashActive = false;
 bool fingerPresent = false;
 
-// ============== RGB LED ==============
-int ledFadeValue = 0;
-unsigned long lastLedUpdate = 0;
+// ============== LED STATE ==============
+int ledBrightness = 0;  // Current brightness (0 = off, 255 = full)
 
 // ============== CURRENT VALUES ==============
 int currentBPM = 0;
@@ -111,245 +101,293 @@ void drawLabels();
 void drawBPM(int bpm);
 void drawSignal(int signal);
 void drawIBI(int ibi);
+void drawBeatIndicator(bool active);
 void drawHeart(uint16_t color);
 void drawWaveformColumn();
-void updateRgbLed();
+void updateMinMax();
 void checkFingerTimeout();
-void resetDisplay();
+void setupLED();
+void flashLED();
+void updateLED();
+void setLED(int brightness);
+
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n=== PulseSensor CYD ===");
-  Serial.println("pulsesensor.com/pages/cyd");
+  Serial.println("\n\n=== PulseSensor CYD Dashboard ===");
   
-  // Backlight
   pinMode(BACKLIGHT_PIN, OUTPUT);
   digitalWrite(BACKLIGHT_PIN, HIGH);
   
-  // RGB LED
-  pinMode(RGB_LED_R, OUTPUT);
-  pinMode(RGB_LED_G, OUTPUT);
-  pinMode(RGB_LED_B, OUTPUT);
-  analogWrite(RGB_LED_R, 0);
-  analogWrite(RGB_LED_G, 0);
-  analogWrite(RGB_LED_B, 0);
+  // Setup RGB LED
+  setupLED();
   
-  // Display
   tft.init();
   tft.setRotation(1);
   tft.fillScreen(COLOR_BG);
   
   drawLabels();
-  drawHeart(COLOR_HEART_DIM);
+  tft.fillRect(1, WAVEFORM_TOP, SCREEN_WIDTH - 2, WAVEFORM_HEIGHT, COLOR_BG);
   
-  // PulseSensor
   pulseSensor.analogInput(PULSE_SENSOR_PIN);
   pulseSensor.setThreshold(THRESHOLD);
   
   if (pulseSensor.begin()) {
-    Serial.println("PulseSensor ready");
+    Serial.println("PulseSensor initialized!");
   } else {
-    Serial.println("PulseSensor FAILED");
-    tft.setTextColor(TFT_RED);
-    tft.drawString("Sensor Error!", 100, 120, 4);
+    Serial.println("PulseSensor FAILED!");
   }
   
-  // Initialize waveform buffer
   for (int i = 0; i < WAVEFORM_SAMPLES; i++) {
     waveformBuffer[i] = 2048;
   }
   
-  lastBeatTime = millis();
+  drawBPM(0);
+  drawSignal(0);
+  drawIBI(0);
+  drawBeatIndicator(false);
 }
 
 void loop() {
-  // Read sensor
+  unsigned long now = millis();
+  
   currentSignal = pulseSensor.getLatestSample();
   
-  // Check for beat
   if (pulseSensor.sawStartOfBeat()) {
     currentBPM = pulseSensor.getBeatsPerMinute();
     currentIBI = pulseSensor.getInterBeatIntervalMs();
-    lastBeatTime = millis();
-    fingerPresent = true;
+    lastBeatTime = now;
     beatFlashActive = true;
-    ledFadeValue = 255;
+    fingerPresent = true;
     
-    // Update displays
-    drawBPM(currentBPM);
-    drawIBI(currentIBI);
-    drawHeart(COLOR_HEART);
+    // Flash the LED!
+    flashLED();
     
-    Serial.print("BPM: ");
-    Serial.print(currentBPM);
-    Serial.print(" | IBI: ");
-    Serial.println(currentIBI);
+    if (currentBPM != lastDisplayedBPM) {
+      drawBPM(currentBPM);
+      lastDisplayedBPM = currentBPM;
+    }
+    if (currentIBI != lastDisplayedIBI) {
+      drawIBI(currentIBI);
+      lastDisplayedIBI = currentIBI;
+    }
+    drawBeatIndicator(true);
+    
+    Serial.printf("%d,%d,%d,1\n", currentSignal, currentBPM, currentIBI);
   }
   
-  // Update waveform at interval
-  if (millis() - lastDrawTime >= WAVEFORM_SPEED) {
-    lastDrawTime = millis();
+  if (beatFlashActive && (now - lastBeatTime > 150)) {
+    beatFlashActive = false;
+    drawBeatIndicator(false);
+  }
+  
+  // Update LED fade
+  updateLED();
+  
+  checkFingerTimeout();
+  
+  if (now - lastDrawTime >= WAVEFORM_SPEED) {
+    lastDrawTime = now;
     
-    // Store sample
-    waveformBuffer[waveformIndex] = currentSignal;
-    
-    // Update min/max for scaling
-    if (currentSignal < minSignal) minSignal = currentSignal;
-    if (currentSignal > maxSignal) maxSignal = currentSignal;
-    
-    // Slowly drift min/max toward center
-    minSignal += 1;
-    maxSignal -= 1;
-    if (minSignal > 1800) minSignal = 1800;
-    if (maxSignal < 2200) maxSignal = 2200;
-    
-    // Draw single column (flicker-free)
+    waveformBuffer[waveformX] = currentSignal;
+    updateMinMax();
     drawWaveformColumn();
     
-    // Advance index
-    waveformIndex = (waveformIndex + 1) % SCREEN_WIDTH;
+    waveformX++;
+    if (waveformX >= SCREEN_WIDTH) {
+      waveformX = 0;
+    }
     
-    // Update signal display
-    drawSignal(currentSignal);
+    if (waveformX % 10 == 0) {
+      if (abs(currentSignal - lastDisplayedSignal) > 30) {
+        drawSignal(currentSignal);
+        lastDisplayedSignal = currentSignal;
+      }
+    }
   }
+}
+
+// ============== RGB LED FUNCTIONS ==============
+
+void setupLED() {
+  // New ESP32 Arduino Core 3.x API
+  ledcAttach(LED_RED_PIN, 5000, 8);    // Pin, frequency, resolution
+  ledcAttach(LED_GREEN_PIN, 5000, 8);
+  ledcAttach(LED_BLUE_PIN, 5000, 8);
   
-  // Heart fade
-  if (beatFlashActive && millis() - lastBeatTime > 100) {
-    beatFlashActive = false;
-    drawHeart(COLOR_HEART_DIM);
+  // Start with LED off
+  setLED(0);
+}
+
+void flashLED() {
+  ledBrightness = LED_MAX_BRIGHTNESS;
+  setLED(ledBrightness);
+}
+
+void updateLED() {
+  unsigned long now = millis();
+  
+  if (now - lastLedUpdate >= 10) {
+    lastLedUpdate = now;
+    
+    if (ledBrightness > 0) {
+      ledBrightness -= LED_FADE_SPEED;
+      if (ledBrightness < 0) ledBrightness = 0;
+      setLED(ledBrightness);
+    }
   }
+}
+
+void setLED(int brightness) {
+  // Active LOW: 255 = off, 0 = full bright
+  int pwmValue = 255 - brightness;
   
-  // RGB LED fade
-  updateRgbLed();
+  // Red only for heartbeat
+  ledcWrite(LED_RED_PIN, pwmValue);    // Red ON
+  ledcWrite(LED_GREEN_PIN, 255);       // Green OFF
+  ledcWrite(LED_BLUE_PIN, 255);        // Blue OFF
+}
+// ============== NO-FINGER TIMEOUT ==============
+void checkFingerTimeout() {
+  unsigned long now = millis();
   
-  // Check for no-finger timeout
-  checkFingerTimeout();
+  if (fingerPresent && (now - lastBeatTime > NO_BEAT_TIMEOUT)) {
+    fingerPresent = false;
+    currentBPM = 0;
+    currentIBI = 0;
+    
+    if (lastDisplayedBPM != 0) {
+      drawBPM(0);
+      lastDisplayedBPM = 0;
+    }
+    if (lastDisplayedIBI != 0) {
+      drawIBI(0);
+      lastDisplayedIBI = 0;
+    }
+    
+    Serial.println("No finger detected - values reset");
+  }
 }
 
 // ============== DRAWING FUNCTIONS ==============
 
 void drawLabels() {
-  tft.setTextColor(COLOR_LABEL);
-  tft.setTextSize(1);
-  tft.drawString("BPM", BPM_X, BPM_Y + 50, 2);
-  tft.drawString("Signal", SIGNAL_X, BOTTOM_Y, 2);
-  tft.drawString("IBI", IBI_X, BOTTOM_Y, 2);
+  tft.setTextColor(COLOR_LABEL, COLOR_BG);
+  tft.setTextSize(2);
+  
+  tft.setCursor(BPM_X, BPM_Y);
+  tft.print("BPM");
+  
+  tft.setCursor(SIGNAL_X, BOTTOM_Y);
+  tft.print("Signal");
+  
+  tft.setCursor(IBI_X, BOTTOM_Y);
+  tft.print("IBI");
+  
+  tft.drawRect(0, WAVEFORM_TOP - 1, SCREEN_WIDTH, WAVEFORM_HEIGHT + 2, COLOR_BORDER);
+  
+  // PulseSensor.com branding - top center
+  tft.setTextColor(BRAND_COLOR, COLOR_BG);
+  tft.setTextSize(BRAND_SIZE);
+  tft.setCursor(BRAND_X, BRAND_Y);
+  tft.print(BRAND_TEXT);
 }
 
 void drawBPM(int bpm) {
-  if (bpm == lastDisplayedBPM) return;
-  lastDisplayedBPM = bpm;
+  tft.fillRect(BPM_X, BPM_Y + 20, 150, 55, COLOR_BG);
   
-  // Clear old value
-  tft.fillRect(BPM_X, BPM_Y, 150, 50, COLOR_BG);
-  
-  // Draw new value
-  tft.setTextColor(COLOR_BPM);
-  tft.setTextSize(1);
-  tft.drawNumber(bpm, BPM_X, BPM_Y, 7);  // Font 7 = 7-segment, 48px
+  tft.setTextSize(7);
+  if (bpm > 30 && bpm < 220) {
+    tft.setTextColor(COLOR_BPM, COLOR_BG);
+    tft.setCursor(BPM_X, BPM_Y + 20);
+    tft.print(bpm);
+  } else {
+    tft.setTextColor(COLOR_LABEL, COLOR_BG);
+    tft.setCursor(BPM_X, BPM_Y + 20);
+    tft.print("--");
+  }
 }
 
 void drawSignal(int signal) {
-  if (signal == lastDisplayedSignal) return;
-  lastDisplayedSignal = signal;
+  tft.fillRect(SIGNAL_X, BOTTOM_Y + 18, 120, 35, COLOR_BG);
   
-  tft.fillRect(SIGNAL_X, BOTTOM_Y + 16, 80, 24, COLOR_BG);
-  tft.setTextColor(COLOR_SIGNAL);
-  tft.drawNumber(signal, SIGNAL_X, BOTTOM_Y + 16, 4);
+  tft.setTextSize(4);
+  tft.setTextColor(COLOR_SIGNAL, COLOR_BG);
+  tft.setCursor(SIGNAL_X, BOTTOM_Y + 20);
+  tft.print(signal);
 }
 
 void drawIBI(int ibi) {
-  if (ibi == lastDisplayedIBI) return;
-  lastDisplayedIBI = ibi;
+  tft.fillRect(IBI_X, BOTTOM_Y + 18, 140, 35, COLOR_BG);
   
-  tft.fillRect(IBI_X, BOTTOM_Y + 16, 100, 24, COLOR_BG);
-  tft.setTextColor(COLOR_IBI);
+  tft.setTextSize(4);
+  tft.setTextColor(COLOR_IBI, COLOR_BG);
+  tft.setCursor(IBI_X, BOTTOM_Y + 20);
+  if (ibi > 0) {
+    tft.print(ibi);
+    tft.setTextSize(2);
+    tft.print("ms");
+  } else {
+    tft.print("--");
+  }
+}
+
+void drawBeatIndicator(bool active) {
+  tft.fillRect(BEAT_X - 30, BEAT_Y - 30, 65, 65, COLOR_BG);
   
-  char buf[10];
-  sprintf(buf, "%dms", ibi);
-  tft.drawString(buf, IBI_X, BOTTOM_Y + 16, 4);
+  if (active) {
+    drawHeart(COLOR_HEART);
+  } else {
+    drawHeart(COLOR_HEART_DIM);
+  }
 }
 
 void drawHeart(uint16_t color) {
-  int x = BEAT_X;
-  int y = BEAT_Y;
-  int r = BEAT_R;
-  
-  // Simple heart using circles and triangle
-  tft.fillCircle(x - r/2, y, r/2, color);
-  tft.fillCircle(x + r/2, y, r/2, color);
-  tft.fillTriangle(x - r, y, x + r, y, x, y + r, color);
+  tft.fillCircle(BEAT_X - 12, BEAT_Y - 8, 14, color);
+  tft.fillCircle(BEAT_X + 12, BEAT_Y - 8, 14, color);
+  tft.fillTriangle(BEAT_X - 26, BEAT_Y - 2, BEAT_X + 26, BEAT_Y - 2, BEAT_X, BEAT_Y + 28, color);
 }
 
 void drawWaveformColumn() {
-  int x = waveformIndex;
+  int x = waveformX;
   
-  // Clear this column
-  tft.drawFastVLine(x, WAVEFORM_TOP, WAVEFORM_HEIGHT, COLOR_BG);
+  tft.drawFastVLine(x, WAVEFORM_TOP + 1, WAVEFORM_HEIGHT - 2, COLOR_BG);
   
-  // Get current and previous sample
-  int currentSample = waveformBuffer[waveformIndex];
-  int prevIndex = (waveformIndex - 1 + WAVEFORM_SAMPLES) % WAVEFORM_SAMPLES;
-  int prevSample = waveformBuffer[prevIndex];
+  int cursorX = (x + 4) % SCREEN_WIDTH;
+  tft.drawFastVLine(cursorX, WAVEFORM_TOP + 1, WAVEFORM_HEIGHT - 2, COLOR_GRID);
   
-  // Scale to display
-  int range = maxSignal - minSignal;
-  if (range < 100) range = 100;
+  int range = max(maxSignal - minSignal, 100);
+  float scale = (float)(WAVEFORM_HEIGHT - 10) / range;
   
-  int y1 = map(prevSample, minSignal, maxSignal, WAVEFORM_BOTTOM - 5, WAVEFORM_TOP + 5);
-  int y2 = map(currentSample, minSignal, maxSignal, WAVEFORM_BOTTOM - 5, WAVEFORM_TOP + 5);
+  int y = WAVEFORM_BOTTOM - 5 - (int)((waveformBuffer[x] - minSignal) * scale);
+  y = constrain(y, WAVEFORM_TOP + 2, WAVEFORM_BOTTOM - 2);
   
-  y1 = constrain(y1, WAVEFORM_TOP, WAVEFORM_BOTTOM);
-  y2 = constrain(y2, WAVEFORM_TOP, WAVEFORM_BOTTOM);
-  
-  // Draw thick line
   for (int t = 0; t < WAVEFORM_THICKNESS; t++) {
-    tft.drawLine(x - 1, y1 + t, x, y2 + t, COLOR_WAVEFORM);
+    tft.drawPixel(x, y + t, COLOR_WAVEFORM);
+    tft.drawPixel(x, y - t, COLOR_WAVEFORM);
   }
   
-  // Draw erase cursor (vertical line ahead)
-  int eraseX = (x + 10) % SCREEN_WIDTH;
-  tft.drawFastVLine(eraseX, WAVEFORM_TOP, WAVEFORM_HEIGHT, COLOR_BG);
-}
-
-void updateRgbLed() {
-  if (ledFadeValue > 0) {
-    if (millis() - lastLedUpdate > 10) {
-      lastLedUpdate = millis();
-      ledFadeValue -= 8;
-      if (ledFadeValue < 0) ledFadeValue = 0;
-      analogWrite(RGB_LED_R, ledFadeValue);
+  if (x > 0) {
+    int prevY = WAVEFORM_BOTTOM - 5 - (int)((waveformBuffer[x - 1] - minSignal) * scale);
+    prevY = constrain(prevY, WAVEFORM_TOP + 2, WAVEFORM_BOTTOM - 2);
+    
+    for (int t = 0; t < WAVEFORM_THICKNESS; t++) {
+      tft.drawLine(x - 1, prevY + t, x, y + t, COLOR_WAVEFORM);
+      tft.drawLine(x - 1, prevY - t, x, y - t, COLOR_WAVEFORM);
     }
   }
 }
 
-void checkFingerTimeout() {
-  if (fingerPresent && (millis() - lastBeatTime > NO_BEAT_TIMEOUT)) {
-    fingerPresent = false;
-    resetDisplay();
+void updateMinMax() {
+  static unsigned long lastDecay = 0;
+  unsigned long now = millis();
+  
+  if (now - lastDecay > 100) {
+    lastDecay = now;
+    minSignal = min(minSignal + 5, 2048);
+    maxSignal = max(maxSignal - 5, 2048);
   }
-}
-
-void resetDisplay() {
-  // Clear values
-  lastDisplayedBPM = -1;
-  lastDisplayedSignal = -1;
-  lastDisplayedIBI = -1;
   
-  // Reset display
-  tft.fillRect(BPM_X, BPM_Y, 150, 50, COLOR_BG);
-  tft.fillRect(IBI_X, BOTTOM_Y + 16, 100, 24, COLOR_BG);
-  
-  // Show prompt
-  tft.setTextColor(COLOR_LABEL);
-  tft.drawString("Place finger", BPM_X, BPM_Y + 10, 2);
-  tft.drawString("on sensor", BPM_X, BPM_Y + 28, 2);
-  
-  drawHeart(COLOR_HEART_DIM);
-  
-  // Reset scaling
-  minSignal = 1800;
-  maxSignal = 2200;
-  
-  Serial.println("Waiting for finger...");
+  minSignal = min(minSignal, currentSignal);
+  maxSignal = max(maxSignal, currentSignal);
 }
