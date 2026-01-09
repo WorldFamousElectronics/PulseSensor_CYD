@@ -1,0 +1,10 @@
+{
+  "additionalFiles": "../..",
+  "builtInLibrariesFolders": "/Users/mininarwhal/Library/Arduino15/libraries",
+  "compiler.optimization_flags": "-Os",
+  "customBuildProperties": "build.warn_data_percentage=75",
+  "fqbn": "esp32:esp32:esp32:UploadSpeed=115200,CPUFreq=240,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default",
+  "hardwareFolders": "/Users/mininarwhal/Library/Arduino15/packages",
+  "otherLibrariesFolders": "/Users/mininarwhal/Documents/Arduino/libraries",
+  "sketchLocation": "/Volumes/MediaDrive-MiniSeat4TB/Antigravity Experiment Visual/cyd-pulsesensor/PulseSensor_CYD"
+}
